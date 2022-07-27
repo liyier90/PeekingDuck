@@ -1,0 +1,165 @@
+# Copyright 2022 AI Singapore
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""YOLOv6 model.
+
+Modifications include:
+- Removed `training_mode`, hard code to use RepVGGBlock only
+- Removed `build_model()`
+"""
+
+import math
+from typing import Any, Callable, Dict, Tuple
+
+import torch
+import torch.nn as nn
+
+from peekingduck.pipeline.nodes.model.yolov6_impl.yolov6_files.models.efficient_decoupled_head import (  # pylint: disable=line-too-long
+    EfficientDecoupledHead,
+    build_efficient_decoupled_head_layers,
+)
+from peekingduck.pipeline.nodes.model.yolov6_impl.yolov6_files.models.efficient_rep import (
+    EfficientRep,
+)
+from peekingduck.pipeline.nodes.model.yolov6_impl.yolov6_files.models.rep_pan_neck import (
+    RepPANNeck,
+)
+
+
+class YOLOv6(nn.Module):
+    """YOLOv6 model with backbone, neck and head.
+
+    The default parts are EfficientRep Backbone, Rep-PAN and
+    Efficient Decoupled Head.
+    """
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        channels: int,
+        num_classes: int,
+        anchors: int,
+    ) -> None:
+        super().__init__()
+        # Build network
+        self.backbone, self.neck, self.detect = build_network(
+            config,
+            channels,
+            num_classes,
+            anchors,
+            config["model"]["head"]["num_layers"],
+        )
+
+        # Init Detect head
+        self.stride = self.detect.stride
+        self.detect.i = config["model"]["head"]["begin_indices"]
+        self.detect.f = config["model"]["head"]["out_indices"]
+        self.detect.initialize_biases()
+
+        # Init weights
+        self.initialize_weights(self)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Defines the computation performed at every call.
+
+        Args:
+            inputs: Input images.
+
+        Returns:
+            (torch.Tensor): The decoded output with the shape (B,D,85) where
+            B is the batch size, D is the number of detections. The 85 columns
+            consist of the following values:
+            [x, y, w, h, conf, (cls_conf of the 80 COCO classes)].
+        """
+        inputs = self.backbone(inputs)
+        inputs = self.neck(inputs)
+        output = self.detect(inputs)
+        return output
+
+    def _apply(self, fn: Callable) -> nn.Module:
+        """Applies the generic function to all the modules and submodules.
+
+        For YOLOv6, this ensures that stride and grid are moved to the same
+        device as the model.
+        """
+        self = super()._apply(fn)  # pylint: disable=self-cls-assignment
+        self.detect.stride = fn(self.detect.stride)
+        self.detect.grid = list(map(fn, self.detect.grid))
+        return self
+
+    @staticmethod
+    def initialize_weights(model: nn.Module) -> None:
+        """Initializes weights for the various sub modules of the specified
+        model.
+        """
+        for module in model.modules():
+            if isinstance(module, nn.Conv2d):
+                pass  # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(module, nn.BatchNorm2d):
+                module.eps = 1e-3
+                module.momentum = 0.03
+            elif isinstance(
+                module, (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU)
+            ):
+                module.inplace = True
+
+
+def make_divisible(value: int, divisor: int) -> int:
+    """Upward revision of ``value`` to make it evenly divisible by the
+    ``divisor``.
+    """
+    return math.ceil(value / divisor) * divisor
+
+
+def build_network(
+    config: Dict[str, Any],
+    channels: int,
+    num_classes: int,
+    anchors: int,
+    num_layers: int,
+) -> Tuple[EfficientRep, RepPANNeck, EfficientDecoupledHead]:
+    """Creates the backbone, neck and head networks for the YOLOv6 model.
+
+    Args:
+        config (Dict[str, Any]): Network configuration options.
+        channels (int): Number of input channels.
+        num_classes (int): Number of detectable classes.
+        anchors (int): Number of anchors.
+        num_layers (int): Number of detection layers in the head network.
+
+    Returns:
+        (Tuple[EfficientRep, RepPANNeck, EfficientDecoupledHead]): The backbone,
+        neck, and head networks.
+    """
+    model = config["model"]  # model configs
+    num_repeat = [
+        (max(round(i * model["depth_multiple"]), 1) if i > 1 else i)
+        for i in (model["backbone"]["num_repeats"] + model["neck"]["num_repeats"])
+    ]
+    channels_list = [
+        make_divisible(i * model["width_multiple"], 8)
+        for i in (model["backbone"]["out_channels"] + model["neck"]["out_channels"])
+    ]
+
+    backbone = EfficientRep(channels, channels_list, num_repeat)
+    neck = RepPANNeck(channels_list, num_repeat)
+    head_layers = build_efficient_decoupled_head_layers(
+        channels_list, model["head"]["anchors"], num_classes
+    )
+
+    head = EfficientDecoupledHead(
+        num_classes, anchors, num_layers, head_layers=head_layers
+    )
+
+    return backbone, neck, head
