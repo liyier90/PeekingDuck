@@ -1,12 +1,7 @@
 input: ["img"]
 output: ["bboxes", "bbox_labels", "bbox_scores"]
 
-# Eval related
-batch_size: 32
-data: data/coco.yaml
-exp_name: exp
-save_dir: runs/val/
-task: val
+weights_parent_dir: null
 weights:
   {
     pytorch:

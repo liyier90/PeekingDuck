@@ -21,7 +21,8 @@ import re
 import sys
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union, no_type_check
+from urllib.request import url2pathname
 
 import requests
 from tqdm import tqdm
@@ -191,6 +192,62 @@ class ThresholdCheckerMixin:
             raise TypeError("`key` must be either str or list")
 
 
+class LocalFileAdapter(requests.adapters.BaseAdapter):
+    """Protocol Adapter to allow Requests to GET file:// URLs
+
+    @todo: Properly handle non-empty hostname portions.
+    """
+
+    @no_type_check
+    @staticmethod
+    def _chkpath(method, path):
+        """Return an HTTP status for the given filesystem path."""
+        if method.lower() in ("put", "delete"):
+            return 501, "Not Implemented"  # TODO
+        if method.lower() not in ("get", "head"):
+            return 405, "Method Not Allowed"
+        if os.path.isdir(path):
+            return 400, "Path Not A File"
+        if not os.path.isfile(path):
+            return 404, "File Not Found"
+        if not os.access(path, os.R_OK):
+            return 403, "Access Denied"
+        return 200, "OK"
+
+    @no_type_check
+    def send(self, req, **kwargs):  # pylint: disable=unused-argument,arguments-differ
+        """Return the file specified by the given request
+
+        @type req: C{PreparedRequest}
+        @todo: Should I bother filling `response.headers` and processing
+               If-Modified-Since and friends using `os.stat`?
+        """
+        path = os.path.normcase(os.path.normpath(url2pathname(req.path_url)))
+        response = requests.Response()
+
+        response.status_code, response.reason = self._chkpath(req.method, path)
+        if response.status_code == 200 and req.method.lower() != "head":
+            try:
+                response.raw = open(path, "rb")
+            except (OSError, IOError) as err:
+                response.status_code = 500
+                response.reason = str(err)
+
+        if isinstance(req.url, bytes):
+            response.url = req.url.decode("utf-8")
+        else:
+            response.url = req.url
+
+        response.request = req
+        response.connection = self
+
+        return response
+
+    @no_type_check
+    def close(self):
+        pass
+
+
 class WeightsDownloaderMixin:
     """Mixin class providing utility methods for downloading model weights."""
 
@@ -256,8 +313,18 @@ class WeightsDownloaderMixin:
         Args:
             destination_dir (Path): Destination directory of downloaded file.
         """
-        with open(destination_dir / filename, "wb") as outfile, requests.get(
-            f"{BASE_URL}/{self.model_subdir}/{self.config['model_format']}/{filename}",
+        if self.model_subdir == "yolov6":
+            url_prefix = (
+                f"file://{Path.home() / 'Datasets' / 'GCS' / 'peekingduck' / 'models'}"
+            )
+            requests_session = requests.session()
+            requests_session.mount("file://", LocalFileAdapter())
+        else:
+            url_prefix = BASE_URL
+            requests_session = requests.session()
+
+        with open(destination_dir / filename, "wb") as outfile, requests_session.get(
+            f"{url_prefix}/{self.model_subdir}/{self.config['model_format']}/{filename}",
             stream=True,
         ) as response:
             for chunk in tqdm(response.iter_content(chunk_size=32768)):
@@ -314,7 +381,16 @@ class WeightsDownloaderMixin:
         )
 
     def _get_weights_checksum(self) -> str:
-        with requests.get(f"{BASE_URL}/weights_checksums.json") as response:
+        if self.model_subdir == "yolov6":
+            url_prefix = (
+                f"file://{Path.home() / 'Datasets' / 'GCS' / 'peekingduck' / 'models'}"
+            )
+            requests_session = requests.session()
+            requests_session.mount("file://", LocalFileAdapter())
+        else:
+            url_prefix = BASE_URL
+            requests_session = requests.session()
+        with requests_session.get(f"{url_prefix}/weights_checksums.json") as response:
             checksums = response.json()
         return checksums[self.model_subdir][self.config["model_format"]][
             str(self.config["model_type"])
