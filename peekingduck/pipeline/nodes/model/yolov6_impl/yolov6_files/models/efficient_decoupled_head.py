@@ -49,6 +49,8 @@ class EfficientDecoupledHead(nn.Module):  # pylint: disable=too-many-instance-at
         # detection layer
         super().__init__()
         assert head_layers is not None
+        self.i: int
+        self.f: List[int]  # pylint: disable=invalid-name
         self.num_outputs = num_classes + 5  # number of outputs per anchor
         self.num_layers = num_layers  # number of detection layers
         self.num_anchors = anchors
