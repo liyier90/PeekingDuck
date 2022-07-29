@@ -28,7 +28,9 @@ import requests
 from tqdm import tqdm
 
 BASE_URL = "https://storage.googleapis.com/peekingduck/models"
-MOCK_URL = f"file://{Path(__file__).resolve().parents[3] / 'mock_gcs' / 'peekingduck' / 'models'}"
+MOCK_URL = (
+    Path(__file__).resolve().parents[3] / "mock_gcs" / "peekingduck" / "models"
+).as_uri()
 PEEKINGDUCK_WEIGHTS_SUBDIR = "peekingduck_weights"
 
 
