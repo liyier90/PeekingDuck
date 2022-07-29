@@ -15,7 +15,6 @@
 """YOLOv6 model implementation."""
 
 import logging
-from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import numpy as np
