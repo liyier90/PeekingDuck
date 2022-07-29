@@ -28,6 +28,7 @@ import requests
 from tqdm import tqdm
 
 BASE_URL = "https://storage.googleapis.com/peekingduck/models"
+MOCK_URL = f"file://{Path(__file__).resolve().parents[3] / 'mock_gcs' / 'peekingduck' / 'models'}"
 PEEKINGDUCK_WEIGHTS_SUBDIR = "peekingduck_weights"
 
 
@@ -203,7 +204,7 @@ class LocalFileAdapter(requests.adapters.BaseAdapter):
     def _chkpath(method, path):
         """Return an HTTP status for the given filesystem path."""
         if method.lower() in ("put", "delete"):
-            return 501, "Not Implemented"  # TODO
+            return 501, "Not Implemented"
         if method.lower() not in ("get", "head"):
             return 405, "Method Not Allowed"
         if os.path.isdir(path):
@@ -314,9 +315,7 @@ class WeightsDownloaderMixin:
             destination_dir (Path): Destination directory of downloaded file.
         """
         if self.model_subdir == "yolov6":
-            url_prefix = (
-                f"file://{Path.home() / 'Datasets' / 'GCS' / 'peekingduck' / 'models'}"
-            )
+            url_prefix = MOCK_URL
             requests_session = requests.session()
             requests_session.mount("file://", LocalFileAdapter())
         else:
@@ -382,9 +381,7 @@ class WeightsDownloaderMixin:
 
     def _get_weights_checksum(self) -> str:
         if self.model_subdir == "yolov6":
-            url_prefix = (
-                f"file://{Path.home() / 'Datasets' / 'GCS' / 'peekingduck' / 'models'}"
-            )
+            url_prefix = MOCK_URL
             requests_session = requests.session()
             requests_session.mount("file://", LocalFileAdapter())
         else:
