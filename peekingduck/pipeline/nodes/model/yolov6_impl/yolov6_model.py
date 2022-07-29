@@ -41,8 +41,8 @@ class YOLOv6Model(  # pylint: disable=too-few-public-methods
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-        # self.weights = self.config["weights"][self.config["model_format"]]
-        # model_dir = Path(__file__).resolve().parents[6] / "YOLOv6" / "weights"
+        self.check_bounds(["iou_threshold", "score_threshold"], "[0, 1]")
+
         model_dir = self.download_weights()
         with open(model_dir / self.weights["classes_file"]) as infile:
             class_names = [line.strip() for line in infile.readlines()]

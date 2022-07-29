@@ -3,6 +3,7 @@
 # * DO NOT MODIFY *
 efficientdet: map_effdet
 yolo: map_yolo
+yolov6: map_yolo
 yolox: map_yolo
 ...
 ---

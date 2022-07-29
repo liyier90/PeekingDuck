@@ -31,7 +31,6 @@ class Node(AbstractNode):
 
     def __init__(self, config: Dict[str, Any] = None, **kwargs: Any) -> None:
         super().__init__(config, node_path=__name__, **kwargs)
-        self.config["detect"] = list(range(self.config["num_classes"]))
         self.model = yolov6_model.YOLOv6Model(self.config)
 
     def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore

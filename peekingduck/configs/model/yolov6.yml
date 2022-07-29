@@ -22,7 +22,6 @@ detect: [0]
 iou_threshold: 0.45
 score_threshold: 0.25
 
-device: "0"
 agnostic_nms: true
 fuse: true
 half: false
